@@ -1,0 +1,10 @@
+# Data folder - contains runtime data, models, and configurations
+# RULE: Do not commit, modify, or write to this folder during development
+# This folder is read-only for development purposes
+data/
+
+# Environment files with secrets
+.env
+
+# Docker volumes
+*.log

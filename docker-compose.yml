@@ -1,0 +1,69 @@
+services:
+  zeroclaw:
+    build:
+      context: ./zeroclaw
+      dockerfile: Dockerfile
+    container_name: zeroclaw
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - ZEROCLAW_gateway__allow_public_bind=true
+    # ports:
+    #  - "42618:42617"
+    volumes:
+      - ./data/zeroclaw:/zeroclaw-data
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 32M
+    healthcheck:
+      test: ["CMD", "zeroclaw", "status", "--format=exit-code"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data/searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT}/
+      - GRANIAN_PORT=${SEARXNG_PORT}
+      - TZ=${TZ}
+
+  whisper:
+    build:
+      context: ./whisper
+      dockerfile: Dockerfile
+      args:
+        WHISPER_VERSION: "${WHISPER_VERSION}"
+        WHISPER_PLATFORM: "${WHISPER_PLATFORM}"
+        WHISPER_ARCH: "${WHISPER_ARCH}"
+        WHISPER_MODEL: ${WHISPER_MODEL}
+    container_name: whisper
+    restart: unless-stopped
+    network_mode: host
+    command: ["--host", "0.0.0.0", "--port", "${WHISPER_PORT}", "--model", "/whisper/models/ggml-${WHISPER_MODEL}.bin", "--inference-path", "/v1/audio/transcriptions"]
+    environment:
+      - TZ=${TZ}
+
+  piper:
+    image: kamilkrawiec/piper-openai-tts
+    container_name: piper
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data/piper:/data
+    environment:
+      - PORT=${TTS_PORT}
+      - TZ=${TZ}
+
+
