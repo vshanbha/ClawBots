@@ -55,10 +55,10 @@ if docker ps --format '{{.Names}}' | grep -q '^zeroclaw$'; then
 
   DAEMON_STATE=$(docker exec zeroclaw cat /zeroclaw-data/.zeroclaw/state/daemon_state.json 2>/dev/null || echo "")
   if [ -n "$DAEMON_STATE" ]; then
-    DAEMON_STATUS=$(echo "$DAEMON_STATE" | grep -oP '"daemon":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
-    GATEWAY_STATUS=$(echo "$DAEMON_STATE" | grep -oP '"gateway":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
-    DISCORD_RAMLAL=$(echo "$DAEMON_STATE" | grep -oP '"channel:discord\.ramlal_zeroclaw":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
-    DISCORD_REVERMO=$(echo "$DAEMON_STATE" | grep -oP '"channel:discord\.revermo_buddy":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
+    DAEMON_STATUS=$(echo "$DAEMON_STATE" | grep -A5 '"daemon"' | grep -oP '"status":\s*"\K[^"]+' || echo "unknown")
+    GATEWAY_STATUS=$(echo "$DAEMON_STATE" | grep -A5 '"gateway"' | grep -oP '"status":\s*"\K[^"]+' || echo "unknown")
+    DISCORD_RAMLAL=$(echo "$DAEMON_STATE" | grep -A5 '"channel:discord.ramlal_zeroclaw"' | grep -oP '"status":\s*"\K[^"]+' || echo "unknown")
+    DISCORD_REVERMO=$(echo "$DAEMON_STATE" | grep -A5 '"channel:discord.revermo_buddy"' | grep -oP '"status":\s*"\K[^"]+' || echo "unknown")
 
     if [ "$DAEMON_STATUS" = "ok" ]; then
       result "$PASS" "Daemon" "ok"
