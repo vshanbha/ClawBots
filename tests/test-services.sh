@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# test-services.sh — Health checks + TTS→STT round-trip for all ZeroClaw Docker services
+# test-services.sh — Health checks + TTS→STT round-trip (WAV and OGG) for all ClawBots Docker services
 # Usage: bash test-services.sh
-# Requirements: docker, curl
+# Requirements: docker, curl, ffmpeg (for OGG testing)
 
 set -euo pipefail
 
@@ -24,9 +24,9 @@ result() {
   echo "$status $name: $detail"
 }
 
-# ─── ZeroClaw ──────────────────────────────────────────────────
+# ─── ClawBots ──────────────────────────────────────────────────
 
-log "ZeroClaw (agent runtime)"
+log "ClawBots (agent runtime)"
 
 if docker ps --format '{{.Names}}' | grep -q '^zeroclaw$'; then
   result "$PASS" "Container" "running"
@@ -195,12 +195,137 @@ if $PIPER_RUNNING && $WHISPER_UP; then
     fi
   done
 
-  result "$PASS" "Round-trip" "$ROUNDTRIP_OK/${#PHRASES[@]} matched"
+  result "$PASS" "Round-trip WAV" "$ROUNDTRIP_OK/${#PHRASES[@]} matched"
 
 else
   log "Round-trip: Piper → Whisper"
   echo "  ⏭️  Skipped — both Piper and Whisper must be running"
   ROUNDTRIP_SKIP=1
+fi
+
+# ─── Round-trip: Piper TTS → OGG → WAV → Whisper STT ──────────
+# Tests OGG encoding/decoding pipeline: Piper WAV → OGG → WAV → Whisper
+# Pre-built whisper binaries don't support OGG natively, so we test
+# the full conversion pipeline via ffmpeg
+
+OGG_ROUNDTRIP_OK=0
+OGG_ROUNDTRIP_FAIL=0
+OGG_ROUNDTRIP_SKIP=0
+
+if $PIPER_RUNNING && $WHISPER_UP; then
+
+  log "Round-trip: Piper → OGG → WAV → Whisper"
+
+  # Check if ffmpeg is available (locally or via docker)
+  FFMPEG_CMD=""
+  if command -v ffmpeg &>/dev/null; then
+    FFMPEG_CMD="ffmpeg"
+  elif docker ps --format '{{.Names}}' | grep -q ffmpeg; then
+    FFMPEG_CMD="docker run --rm -i jrottenberg/ffmpeg:alpine"
+  else
+    echo "  ⏭️  Skipped — ffmpeg not found (install ffmpeg or add ffmpeg container)"
+    OGG_ROUNDTRIP_SKIP=1
+  fi
+
+  if [ "$OGG_ROUNDTRIP_SKIP" -eq 0 ]; then
+    for i in "${!PHRASES[@]}"; do
+      phrase="${PHRASES[$i]}"
+      wav="$WORK_DIR/rt_test_$i.wav"
+      ogg="$WORK_DIR/rt_test_$i.ogg"
+      wav_from_ogg="$WORK_DIR/rt_test_${i}_from_ogg.wav"
+
+      # TTS: Piper generates WAV (reuse if already exists)
+      if [ ! -s "$wav" ]; then
+        TTS_CODE=$(curl -s -o "$wav" -w "%{http_code}" \
+          -X POST "$PIPER_URL/v1/audio/speech" \
+          -H "Content-Type: application/json" \
+          -d "{\"input\":\"$phrase\",\"model\":\"tts-1\",\"voice\":\"en_GB-alan-medium\"}" \
+          2>/dev/null) || TTS_CODE="000"
+
+        if [ "$TTS_CODE" != "200" ] || [ ! -s "$wav" ]; then
+          echo "  ❌ TTS failed for phrase $((i+1)) (HTTP $TTS_CODE)"
+          OGG_ROUNDTRIP_FAIL=$((OGG_ROUNDTRIP_FAIL + 1))
+          continue
+        fi
+      fi
+
+      # Convert WAV → OGG
+      if [ "$FFMPEG_CMD" = "ffmpeg" ]; then
+        $FFMPEG_CMD -y -i "$wav" -c:a libopus "$ogg" 2>/dev/null
+      else
+        docker run --rm -i -v "$WORK_DIR":/data jrottenberg/ffmpeg:alpine \
+          -i /data/rt_test_$i.wav -c:a libopus /data/rt_test_$i.ogg 2>/dev/null
+      fi
+
+      if [ ! -s "$ogg" ]; then
+        echo "  ❌ WAV→OGG conversion failed for phrase $((i+1))"
+        OGG_ROUNDTRIP_FAIL=$((OGG_ROUNDTRIP_FAIL + 1))
+        continue
+      fi
+
+      # Convert OGG → WAV (simulates client preprocessing before sending to Whisper)
+      if [ "$FFMPEG_CMD" = "ffmpeg" ]; then
+        $FFMPEG_CMD -y -i "$ogg" -ar 16000 -ac 1 -c:a pcm_s16le "$wav_from_ogg" 2>/dev/null
+      else
+        docker run --rm -i -v "$WORK_DIR":/data jrottenberg/ffmpeg:alpine \
+          -i /data/rt_test_$i.ogg -ar 16000 -ac 1 -c:a pcm_s16le /data/rt_test_${i}_from_ogg.wav 2>/dev/null
+      fi
+
+      if [ ! -s "$wav_from_ogg" ]; then
+        echo "  ❌ OGG→WAV conversion failed for phrase $((i+1))"
+        OGG_ROUNDTRIP_FAIL=$((OGG_ROUNDTRIP_FAIL + 1))
+        continue
+      fi
+
+      # STT: Whisper transcribes the WAV converted from OGG
+      STT_RESPONSE=$(curl -s \
+        -X POST "$WHISPER_URL/v1/audio/transcriptions" \
+        -H "Content-Type: multipart/form-data" \
+        -F "file=@$wav_from_ogg" \
+        -F "model=ggml-small" \
+        -F "temperature=0.0" \
+        -F "response_format=json" \
+        2>/dev/null) || STT_RESPONSE=""
+
+      heard=$(echo "$STT_RESPONSE" | grep -oP '"text"\s*:\s*"\K[^"]+' || echo "")
+
+      if [ -z "$heard" ]; then
+        echo "  ❌ STT failed for phrase $((i+1)) — no text returned"
+        OGG_ROUNDTRIP_FAIL=$((OGG_ROUNDTRIP_FAIL + 1))
+        continue
+      fi
+
+      # Normalize: strip punctuation, lowercase
+      phrase_norm=$(echo "$phrase" | tr -d '[:punct:]' | tr '[:upper:]' '[:lower:]')
+      heard_norm=$(echo "$heard" | tr -d '[:punct:]' | tr '[:upper:]' '[:lower:]')
+
+      # Count overlapping words
+      MATCHED_WORDS=0
+      TOTAL_WORDS=$(echo "$phrase_norm" | wc -w)
+      for word in $phrase_norm; do
+        if echo "$heard_norm" | grep -qw "$word" 2>/dev/null; then
+          MATCHED_WORDS=$((MATCHED_WORDS + 1))
+        fi
+      done
+
+      # Pass if more than half the words match
+      THRESHOLD=$((TOTAL_WORDS / 2))
+      if [ "$MATCHED_WORDS" -gt "$THRESHOLD" ]; then
+        echo "  ✅ Phrase $((i+1)): \"$phrase\" → \"$heard\" ($MATCHED_WORDS/$TOTAL_WORDS words)"
+        OGG_ROUNDTRIP_OK=$((OGG_ROUNDTRIP_OK + 1))
+      else
+        echo "  ❌ Phrase $((i+1)): \"$phrase\" → \"$heard\" ($MATCHED_WORDS/$TOTAL_WORDS words)"
+        OGG_ROUNDTRIP_FAIL=$((OGG_ROUNDTRIP_FAIL + 1))
+      fi
+    done
+
+    result "$PASS" "Round-trip OGG" "$OGG_ROUNDTRIP_OK/${#PHRASES[@]} matched"
+  fi
+
+else
+  log "Round-trip: Piper → OGG → WAV → Whisper"
+  echo "  ⏭️  Skipped — both Piper and Whisper must be running"
+  OGG_ROUNDTRIP_SKIP=1
 fi
 
 # ─── Summary ───────────────────────────────────────────────────
@@ -215,7 +340,11 @@ WARNED=$(printf '%s\n' "${RESULTS[@]}" | grep -c "^⚠️" || true)
 echo "Total: $TOTAL | Pass: $PASSED | Fail: $FAILED | Warn: $WARNED"
 
 if [ "$ROUNDTRIP_SKIP" -eq 0 ]; then
-  echo "Round-trip: ${#PHRASES[@]} phrases | Matched: $ROUNDTRIP_OK | Failed: $ROUNDTRIP_FAIL"
+  echo "Round-trip WAV: ${#PHRASES[@]} phrases | Matched: $ROUNDTRIP_OK | Failed: $ROUNDTRIP_FAIL"
+fi
+
+if [ "$OGG_ROUNDTRIP_SKIP" -eq 0 ]; then
+  echo "Round-trip OGG: ${#PHRASES[@]} phrases | Matched: $OGG_ROUNDTRIP_OK | Failed: $OGG_ROUNDTRIP_FAIL"
 fi
 
 if [ "$FAILED" -gt 0 ]; then

@@ -1,4 +1,4 @@
-# Start: ZeroClaw (our base)
+# Start: ClawBots (our base)
 FROM ghcr.io/zeroclaw-labs/zeroclaw:debian
 
 # Install dependencies

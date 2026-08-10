@@ -1,3 +1,14 @@
+#
+# Whisper.cpp with OGG support via ffmpeg preprocessing
+# Uses pre-built release binaries (Ivy Bridge compatible) + ffmpeg for format conversion
+#
+# Build:  docker build -t whisper .
+# Run:    docker run -d -p 9001:9001 \
+#           -v /path/to/models:/whisper/models \
+#           whisper --model /whisper/models/ggml-small.bin \
+#                   --host 0.0.0.0 --port 9001 \
+#                   --inference-path /v1/audio/transcriptions
+
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -1,31 +1,51 @@
-# ZeroClaw Agent - Docker Architecture
+# ClawBots - Docker Architecture
 
 ## Overview
 
-ZeroClaw Agent is an opinionated, containerized AI agent platform built on open-source solutions. This repository provides a complete, production-ready Docker deployment combining multiple services into a cohesive agent system.
+ClawBots is an opinionated, containerized AI agent platform built on open-source solutions. This repository provides a complete, production-ready Docker deployment combining multiple services into a cohesive agent system.
 
 ## Services
 
 ### Core Agent
-- **ZeroClaw Agent** - Primary AI agent orchestrator and reasoning engine
+- **ClawBots Agent** - Primary AI agent orchestrator and reasoning engine
+  - Website: https://zeroclaw.ai
+  - Documentation: https://docs.zeroclaw.ai
+  - GitHub: https://github.com/zeroclaw-labs/zeroclaw
 
 ### Speech & Audio
 - **Whisper CPP** - Fast, local speech-to-text (STT) inference
+  - Website: https://github.com/ggerganov/whisper.cpp
+  - Documentation: https://github.com/ggerganov/whisper.cpp#readme
+  - Model Downloads: https://huggingface.co/ggerganov/whisper.cpp
+
 - **Piper** - Local text-to-speech (TTS) synthesis
+  - Website: https://github.com/rhasspy/piper
+  - Documentation: https://github.com/rhasspy/piper/blob/master/README.md
+  - Voice Models: https://huggingface.co/rhasspy/piper-voices
 
 ### Search & Web
 - **SearXNG** - Privacy-respecting metasearch engine
+  - Website: https://docs.searxng.org
+  - Documentation: https://docs.searxng.org
+  - GitHub: https://github.com/searxng/searxng
+
 - **Agent Browser** - Web browsing and interaction capabilities for the agent
+  - Website: https://github.com/nicholasgriffintn/agent-browser
+  - Documentation: https://github.com/nicholasgriffintn/agent-browser#readme
 
 ### Infrastructure
 - **Docker Compose** - Multi-container orchestration
+  - Website: https://www.docker.com
+  - Documentation: https://docs.docker.com/compose
+  - GitHub: https://github.com/docker/compose
+
 - **Persistent Data Volumes** - Model storage, configs, and runtime data
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                  ZeroClaw Agent                  │
+│                  ClawBots Agent                  │
 │              (Orchestration Core)                │
 └─────────────────┬───────────────────────────────┘
                   │
@@ -84,4 +104,4 @@ docker-compose -f docker-compose.test.yml up
 
 ## License
 
-Proprietary - ZeroClaw Agent Platform
+Proprietary - ClawBots Platform
