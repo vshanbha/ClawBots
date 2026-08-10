@@ -115,6 +115,20 @@ docker compose build zeroclaw
 docker compose up -d
 ```
 
+## Testing
+
+```bash
+# Run all health checks and round-trip tests (WAV + OGG)
+bash tests/test-services.sh
+```
+
+The test script verifies:
+- All containers are running
+- Health endpoints respond correctly
+- Piper TTS generates audio
+- Whisper STT transcribes WAV files
+- Whisper STT transcribes OGG files (native support via speaches)
+
 ## Troubleshooting
 
 ```bash
