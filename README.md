@@ -7,7 +7,7 @@ Four containers that make up the ClawBots appliance: the AI agent, a web search 
 | Project | Description | Links |
 |---------|-------------|-------|
 | **ClawBots** | AI agent orchestrator and reasoning engine | [Website](https://zeroclaw.ai) • [Docs](https://docs.zeroclaw.ai) • [GitHub](https://github.com/zeroclaw-labs/zeroclaw) |
-| **Whisper CPP** | Fast, local speech-to-text inference | [GitHub](https://github.com/ggerganov/whisper.cpp) • [Models](https://huggingface.co/ggerganov/whisper.cpp) |
+| **Speaches** | OpenAI-compatible STT server (faster-whisper) | [GitHub](https://github.com/speaches-ai/speaches) |
 | **Piper** | Local text-to-speech synthesis | [GitHub](https://github.com/rhasspy/piper) • [Voices](https://huggingface.co/rhasspy/piper-voices) |
 | **SearXNG** | Privacy-respecting metasearch engine | [Docs](https://docs.searxng.org) • [GitHub](https://github.com/searxng/searxng) |
 | **Agent Browser** | Headless Chrome for web automation | [GitHub](https://github.com/nicholasgriffintn/agent-browser) |
@@ -30,11 +30,11 @@ A self-hosted metasearch engine. When you ask the agent to search the web, it qu
 - **Config mounted** from `./data/searxng/` on the host into `/etc/searxng/` inside the container. Edit the config files there to change which search engines are enabled.
 
 ### whisper — speech-to-text
-Runs OpenAI Whisper (via whisper.cpp) to convert voice messages into text. When someone sends a voice note on Discord or Telegram, it gets transcribed here.
+Runs Speaches (faster-whisper) to convert voice messages into text. When someone sends a voice note on Discord or Telegram, it gets transcribed here. Supports WAV, OGG, MP3, FLAC, and Opus natively.
 
 - **Host network** — listens on port 9001.
-- **Model baked into the image** — the `ggml-small.bin` model (about 1GB) is downloaded from Hugging Face during `docker build` and stored inside the image. To change the model size, rebuild with a different `WHISPER_MODEL` value in `.env` (tiny, base, small, medium, large).
-- **No host volumes** — everything lives inside the container image.
+- **Models auto-download** from HuggingFace on first use (cached in `hf-hub-cache` volume). Default: `Systran/faster-whisper-small` (~500MB).
+- **Model aliases** — `whisper/model_aliases.json` maps friendly names (e.g., `ggml-small`) to HuggingFace model IDs.
 
 ### piper — text-to-speech
 Converts the agent's text replies into natural-sounding speech. Uses the Piper TTS engine with OpenAI-compatible API.
@@ -54,7 +54,7 @@ docker/
 ├── zeroclaw/
 │   └── Dockerfile          # Builds the agent image (base + Node.js + agent-browser + Chrome)
 ├── whisper/
-│   └── Dockerfile          # Builds the STT image (whisper.cpp binary + model download)
+│   └── model_aliases.json  # Maps model names (ggml-small) to HuggingFace IDs
 └── data/
     ├── searxng/            # SearXNG config (settings.yml, limiter.toml)
     └── piper/              # Piper voice model files (.onnx)
@@ -90,29 +90,26 @@ docker compose exec zeroclaw zeroclaw quickstart
 
 ## Changing the Whisper model
 
-The speech-to-text model is downloaded during the Docker build, so changing it requires a rebuild:
+Models are specified per-request via the `model` field. To change the default, update `whisper/model_aliases.json`:
 
 ```bash
-# Edit .env: change WHISPER_MODEL=small to WHISPER_MODEL=medium
-nano .env
+# Edit the alias to point to a different model
+nano whisper/model_aliases.json
 
-# Rebuild just the whisper container
-docker compose build whisper
-
-# Restart with the new model
-docker compose up -d whisper
+# Restart whisper to pick up the change
+docker compose restart whisper
 ```
 
-Model sizes: `tiny` (~75MB, fast but less accurate), `base` (~142MB), `small` (~466MB, good balance), `medium` (~1.5GB), `large` (~3GB, best accuracy).
+Available models: `Systran/faster-whisper-tiny` (~75MB), `Systran/faster-whisper-base` (~150MB), `Systran/faster-whisper-small` (~500MB), `Systran/faster-whisper-medium` (~1.5GB), `Systran/faster-whisper-large-v3` (~3GB).
 
 ## Updating
 
 ```bash
-# Pull latest base images
+# Pull latest images (speaches, piper, searxng)
 docker compose pull
 
-# Rebuild zeroclaw and whisper (they have custom Dockerfiles)
-docker compose build
+# Rebuild zeroclaw (has custom Dockerfile)
+docker compose build zeroclaw
 
 # Restart everything
 docker compose up -d
@@ -125,7 +122,7 @@ docker compose up -d
 docker compose logs zeroclaw
 
 # Check Whisper is serving
-curl http://localhost:9001/v1/models
+curl http://localhost:9001/health
 
 # Check Piper is serving
 curl http://localhost:5000/v1/models
