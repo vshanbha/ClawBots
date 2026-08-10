@@ -40,19 +40,20 @@ services:
       - TZ=${TZ}
 
   whisper:
-    build:
-      context: ./whisper
-      dockerfile: Dockerfile
-      args:
-        WHISPER_VERSION: "${WHISPER_VERSION}"
-        WHISPER_PLATFORM: "${WHISPER_PLATFORM}"
-        WHISPER_ARCH: "${WHISPER_ARCH}"
-        WHISPER_MODEL: ${WHISPER_MODEL}
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
     container_name: whisper
     restart: unless-stopped
     network_mode: host
-    command: ["--host", "0.0.0.0", "--port", "${WHISPER_PORT}", "--model", "/whisper/models/ggml-${WHISPER_MODEL}.bin", "--inference-path", "/v1/audio/transcriptions"]
+    volumes:
+      - ./whisper/model_aliases.json:/home/ubuntu/speaches/model_aliases.json
+      - hf-hub-cache:/home/ubuntu/.cache/huggingface/hub
     environment:
+      - UVICORN_HOST=0.0.0.0
+      - UVICORN_PORT=${WHISPER_PORT}
+      - WHISPER__INFERENCE_DEVICE=cpu
+      - WHISPER__CPU_THREADS=${WHISPER_CPU_THREADS}
+      - STT_MODEL_TTL=-1
+      - ENABLE_UI=true
       - TZ=${TZ}
 
   piper:
@@ -66,4 +67,6 @@ services:
       - PORT=${TTS_PORT}
       - TZ=${TZ}
 
+volumes:
+  hf-hub-cache:
 

@@ -36,7 +36,13 @@ if docker ps --format '{{.Names}}' | grep -q '^zeroclaw$'; then
     VERSION=$(docker exec zeroclaw zeroclaw status 2>&1 | grep -oP 'Version:\s+\K.*' || echo "unknown")
     SERVICE=$(docker exec zeroclaw zeroclaw status 2>&1 | grep -oP 'Service:\s+\K.*' || echo "unknown")
     result "$PASS" "Version" "$VERSION"
-    result "$PASS" "Service state" "$SERVICE"
+    if [ "$SERVICE" = "stopped" ]; then
+      result "$WARN" "Service mode" "containerized (daemon runs as PID 1, not systemd)"
+    elif [ "$SERVICE" = "running" ]; then
+      result "$PASS" "Service state" "$SERVICE"
+    else
+      result "$PASS" "Service state" "$SERVICE"
+    fi
   else
     result "$FAIL" "zeroclaw status" "non-zero exit"
   fi
@@ -45,6 +51,40 @@ if docker ps --format '{{.Names}}' | grep -q '^zeroclaw$'; then
     result "$PASS" "Config mount" "/zeroclaw-data/.zeroclaw/config.toml exists"
   else
     result "$WARN" "Config mount" "config.toml not found"
+  fi
+
+  DAEMON_STATE=$(docker exec zeroclaw cat /zeroclaw-data/.zeroclaw/state/daemon_state.json 2>/dev/null || echo "")
+  if [ -n "$DAEMON_STATE" ]; then
+    DAEMON_STATUS=$(echo "$DAEMON_STATE" | grep -oP '"daemon":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
+    GATEWAY_STATUS=$(echo "$DAEMON_STATE" | grep -oP '"gateway":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
+    DISCORD_RAMLAL=$(echo "$DAEMON_STATE" | grep -oP '"channel:discord\.ramlal_zeroclaw":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
+    DISCORD_REVERMO=$(echo "$DAEMON_STATE" | grep -oP '"channel:discord\.revermo_buddy":\s*\{[^}]*"status":\s*"\K[^"]+' || echo "unknown")
+
+    if [ "$DAEMON_STATUS" = "ok" ]; then
+      result "$PASS" "Daemon" "ok"
+    else
+      result "$FAIL" "Daemon" "$DAEMON_STATUS"
+    fi
+
+    if [ "$GATEWAY_STATUS" = "ok" ]; then
+      result "$PASS" "Gateway" "ok"
+    else
+      result "$FAIL" "Gateway" "$GATEWAY_STATUS"
+    fi
+
+    if [ "$DISCORD_RAMLAL" = "ok" ]; then
+      result "$PASS" "Discord (ramlal)" "connected"
+    else
+      result "$FAIL" "Discord (ramlal)" "$DISCORD_RAMLAL"
+    fi
+
+    if [ "$DISCORD_REVERMO" = "ok" ]; then
+      result "$PASS" "Discord (revermo_buddy)" "connected"
+    else
+      result "$FAIL" "Discord (revermo_buddy)" "$DISCORD_REVERMO"
+    fi
+  else
+    result "$WARN" "Daemon state" "could not read daemon_state.json"
   fi
 else
   result "$FAIL" "Container" "not running"
@@ -58,7 +98,7 @@ if docker ps --format '{{.Names}}' | grep -q '^whisper$'; then
   result "$PASS" "Container" "running"
 
   WHISPER_HEALTH=$(curl -sf http://localhost:9001/health 2>/dev/null || echo "FAIL")
-  if echo "$WHISPER_HEALTH" | grep -q '"ok"'; then
+  if echo "$WHISPER_HEALTH" | grep -q "OK"; then
     result "$PASS" "Health endpoint" "$WHISPER_HEALTH"
   else
     result "$FAIL" "Health endpoint" "unreachable or error"
@@ -203,10 +243,10 @@ else
   ROUNDTRIP_SKIP=1
 fi
 
-# ─── Round-trip: Piper TTS → OGG → WAV → Whisper STT ──────────
-# Tests OGG encoding/decoding pipeline: Piper WAV → OGG → WAV → Whisper
-# Pre-built whisper binaries don't support OGG natively, so we test
-# the full conversion pipeline via ffmpeg
+# ─── Round-trip: Piper TTS → OGG → Whisper STT ───────────────
+# Tests native OGG support via faster-whisper/speaches
+# ffmpeg is only needed to create the OGG file from Piper's WAV output
+# speaches handles OGG natively — no conversion back to WAV needed
 
 OGG_ROUNDTRIP_OK=0
 OGG_ROUNDTRIP_FAIL=0
@@ -214,16 +254,16 @@ OGG_ROUNDTRIP_SKIP=0
 
 if $PIPER_RUNNING && $WHISPER_UP; then
 
-  log "Round-trip: Piper → OGG → WAV → Whisper"
+  log "Round-trip: Piper → OGG → Whisper"
 
-  # Check if ffmpeg is available (locally or via docker)
+  # Check if ffmpeg is available for WAV→OGG conversion
   FFMPEG_CMD=""
   if command -v ffmpeg &>/dev/null; then
     FFMPEG_CMD="ffmpeg"
   elif docker ps --format '{{.Names}}' | grep -q ffmpeg; then
-    FFMPEG_CMD="docker run --rm -i jrottenberg/ffmpeg:alpine"
+    FFMPEG_CMD="docker run --rm -i -v $WORK_DIR:/data jrottenberg/ffmpeg:alpine"
   else
-    echo "  ⏭️  Skipped — ffmpeg not found (install ffmpeg or add ffmpeg container)"
+    echo "  ⏭️  Skipped — ffmpeg not found (needed to convert WAV→OGG for testing)"
     OGG_ROUNDTRIP_SKIP=1
   fi
 
@@ -232,7 +272,6 @@ if $PIPER_RUNNING && $WHISPER_UP; then
       phrase="${PHRASES[$i]}"
       wav="$WORK_DIR/rt_test_$i.wav"
       ogg="$WORK_DIR/rt_test_$i.ogg"
-      wav_from_ogg="$WORK_DIR/rt_test_${i}_from_ogg.wav"
 
       # TTS: Piper generates WAV (reuse if already exists)
       if [ ! -s "$wav" ]; then
@@ -249,7 +288,7 @@ if $PIPER_RUNNING && $WHISPER_UP; then
         fi
       fi
 
-      # Convert WAV → OGG
+      # Convert WAV → OGG using ffmpeg
       if [ "$FFMPEG_CMD" = "ffmpeg" ]; then
         $FFMPEG_CMD -y -i "$wav" -c:a libopus "$ogg" 2>/dev/null
       else
@@ -263,25 +302,11 @@ if $PIPER_RUNNING && $WHISPER_UP; then
         continue
       fi
 
-      # Convert OGG → WAV (simulates client preprocessing before sending to Whisper)
-      if [ "$FFMPEG_CMD" = "ffmpeg" ]; then
-        $FFMPEG_CMD -y -i "$ogg" -ar 16000 -ac 1 -c:a pcm_s16le "$wav_from_ogg" 2>/dev/null
-      else
-        docker run --rm -i -v "$WORK_DIR":/data jrottenberg/ffmpeg:alpine \
-          -i /data/rt_test_$i.ogg -ar 16000 -ac 1 -c:a pcm_s16le /data/rt_test_${i}_from_ogg.wav 2>/dev/null
-      fi
-
-      if [ ! -s "$wav_from_ogg" ]; then
-        echo "  ❌ OGG→WAV conversion failed for phrase $((i+1))"
-        OGG_ROUNDTRIP_FAIL=$((OGG_ROUNDTRIP_FAIL + 1))
-        continue
-      fi
-
-      # STT: Whisper transcribes the WAV converted from OGG
+      # STT: Whisper transcribes OGG directly (speaches handles format conversion)
       STT_RESPONSE=$(curl -s \
         -X POST "$WHISPER_URL/v1/audio/transcriptions" \
         -H "Content-Type: multipart/form-data" \
-        -F "file=@$wav_from_ogg" \
+        -F "file=@$ogg" \
         -F "model=ggml-small" \
         -F "temperature=0.0" \
         -F "response_format=json" \
@@ -323,7 +348,7 @@ if $PIPER_RUNNING && $WHISPER_UP; then
   fi
 
 else
-  log "Round-trip: Piper → OGG → WAV → Whisper"
+  log "Round-trip: Piper → OGG → Whisper"
   echo "  ⏭️  Skipped — both Piper and Whisper must be running"
   OGG_ROUNDTRIP_SKIP=1
 fi
