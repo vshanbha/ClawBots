@@ -110,6 +110,21 @@ if docker ps --format '{{.Names}}' | grep -q '^whisper$'; then
   else
     result "$FAIL" "Server UI" "HTTP $WHISPER_UI_CODE"
   fi
+
+  # Check if whisper model is installed, download if missing
+  WHISPER_MODEL="Systran/faster-whisper-small"
+  WHISPER_MODELS=$(curl -sf http://localhost:9001/v1/models 2>/dev/null || echo '{"data":[]}')
+  if echo "$WHISPER_MODELS" | grep -q "$WHISPER_MODEL"; then
+    result "$PASS" "Model" "$WHISPER_MODEL installed"
+  else
+    result "$WARN" "Model" "$WHISPER_MODEL not found — downloading..."
+    DOWNLOAD_RESP=$(curl -sf -X POST "http://localhost:9001/v1/models/$WHISPER_MODEL" 2>/dev/null || echo "FAIL")
+    if echo "$DOWNLOAD_RESP" | grep -qi "downloaded\|already exists"; then
+      result "$PASS" "Model download" "$DOWNLOAD_RESP"
+    else
+      result "$FAIL" "Model download" "failed — STT tests will not work"
+    fi
+  fi
 else
   result "$FAIL" "Container" "not running"
 fi
