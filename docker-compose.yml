@@ -15,7 +15,7 @@ services:
     #  - "42618:42617"
     volumes:
       - ./data/zeroclaw/.zeroclaw:/zeroclaw-data/.zeroclaw
-      - ${SHARED_WORKSPACE_HOST}:${SHARED_WORKSPACE_CONTAINER}
+      - ${SHARED_WORKSPACE_HOST}:/zeroclaw-data/.zeroclaw/agents/${AGENT_NAME}/workspace/${SHARED_WORKSPACE_CONTAINER}
     deploy:
       resources:
         limits:
