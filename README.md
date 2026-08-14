@@ -74,19 +74,17 @@ SearXNG, Whisper, and Piper all use `network_mode: host` because they only liste
 ## Quick start
 
 ```bash
-# 1. Copy and edit the environment file
-cp .env.example .env
-nano .env
-
-# 2. Build everything and start
-docker compose up -d --build
-
-# 3. Check all containers are running
-docker compose ps
-
-# 4. First-time setup — initialize ClawBots config
-docker compose exec zeroclaw zeroclaw quickstart
+# 1. Run the installer (checks deps, writes .env, builds, starts, tests)
+bash install.sh
 ```
+
+The installer will:
+- Check dependencies (docker, docker compose, curl)
+- Detect your UID/GID and write `.env`
+- Build and start all containers
+- Run health checks
+
+If anything is missing, it will error out with instructions.
 
 ## Changing the Whisper model
 

@@ -40,3 +40,12 @@ ENV PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
 
 # Remove sudo (only needed during build)
 RUN rm /usr/bin/sudo
+
+# Run as non-root user
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g ${GID} zeroclaw && \
+    useradd -u ${UID} -g ${GID} -m -d /zeroclaw-data zeroclaw && \
+    chown -R ${UID}:${GID} /zeroclaw-data
+
+USER zeroclaw

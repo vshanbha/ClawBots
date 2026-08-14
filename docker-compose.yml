@@ -3,6 +3,9 @@ services:
     build:
       context: ./zeroclaw
       dockerfile: Dockerfile
+      args:
+        - UID=${UID}
+        - GID=${GID}
     container_name: zeroclaw
     restart: unless-stopped
     network_mode: host
@@ -11,7 +14,8 @@ services:
     # ports:
     #  - "42618:42617"
     volumes:
-      - ./data/zeroclaw:/zeroclaw-data
+      - ./data/zeroclaw/.zeroclaw:/zeroclaw-data/.zeroclaw
+      - ~/workspace/blog-space:/workspace/blog-space
     deploy:
       resources:
         limits:
