@@ -70,6 +70,7 @@ The `data/` directory contains:
 1. This directory is gitignored and must not be committed to version control
 2. Do not modify, delete, or write to this directory during development
 3. The data folder is read-only for development purposes - all runtime data persists here
+4. **NEVER modify `.env` directly** — only edit `.env.example`. The user will manually update `.env` when ready.
 
 ## Getting Started
 
