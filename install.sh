@@ -147,6 +147,34 @@ fi
 
 echo ""
 
+# ─── Check for missing variables ──────────────────────────────
+
+echo "--- .env validation ---"
+
+# Extract variable names from .env.example (lines with VAR=, excluding comments and empty)
+REQUIRED_VARS=$(grep -E '^[A-Z_]+=' "$ENV_EXAMPLE" | sed 's/=.*//' | sort)
+
+MISSING=()
+for var in $REQUIRED_VARS; do
+  if ! grep -q "^${var}=" "$ENV_FILE" 2>/dev/null; then
+    MISSING+=("$var")
+  fi
+done
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+  fail "missing variables in .env:"
+  for var in "${MISSING[@]}"; do
+    DEFAULT=$(grep "^${var}=" "$ENV_EXAMPLE" | sed 's/^[^=]*=//')
+    echo "    ${var} (default: ${DEFAULT})"
+  done
+  echo ""
+  echo "  Copy missing values from .env.example into .env"
+else
+  pass "all required variables present in .env"
+fi
+
+echo ""
+
 # ─── Summary ──────────────────────────────────────────────────
 
 if [ "$ERRORS" -gt 0 ]; then
