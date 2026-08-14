@@ -167,8 +167,6 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     DEFAULT=$(grep "^${var}=" "$ENV_EXAMPLE" | sed 's/^[^=]*=//')
     echo "    ${var} (default: ${DEFAULT})"
   done
-  echo ""
-  echo "  Copy missing values from .env.example into .env"
 else
   pass "all required variables present in .env"
 fi
