@@ -139,23 +139,10 @@ fi
 
 if [ -f "$ENV_FILE" ]; then
   pass ".env exists"
-  # Update UID/GID in existing .env
-  if grep -q "^UID=" "$ENV_FILE"; then
-    sed -i "s/^UID=.*/UID=$UID_VAL/" "$ENV_FILE"
-  else
-    echo "UID=$UID_VAL" >> "$ENV_FILE"
-  fi
-  if grep -q "^GID=" "$ENV_FILE"; then
-    sed -i "s/^GID=.*/GID=$GID_VAL/" "$ENV_FILE"
-  else
-    echo "GID=$GID_VAL" >> "$ENV_FILE"
-  fi
-  pass "updated UID=$UID_VAL GID=$GID_VAL in .env"
 else
   cp "$ENV_EXAMPLE" "$ENV_FILE"
-  sed -i "s/^UID=.*/UID=$UID_VAL/" "$ENV_FILE"
-  sed -i "s/^GID=.*/GID=$GID_VAL/" "$ENV_FILE"
-  pass "created .env from .env.example with UID=$UID_VAL GID=$GID_VAL"
+  pass "created .env from .env.example"
+  echo "  Edit .env to set UID, GID, and other values for your system"
 fi
 
 echo ""
