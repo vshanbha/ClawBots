@@ -15,7 +15,7 @@ services:
     #  - "42618:42617"
     volumes:
       - ./data/zeroclaw/.zeroclaw:/zeroclaw-data/.zeroclaw
-      - ~/workspace/blog-space:/workspace/blog-space
+      - ${SHARED_WORKSPACE_HOST}:${SHARED_WORKSPACE_CONTAINER}
     deploy:
       resources:
         limits:
