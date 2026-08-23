@@ -6,13 +6,11 @@ services:
       args:
         - UID=${UID}
         - GID=${GID}
-    container_name: zeroclaw
+    container_name: zeroclaw-dev
     restart: unless-stopped
     network_mode: host
     environment:
       - ZEROCLAW_gateway__allow_public_bind=true
-    # ports:
-    #  - "42618:42617"
     volumes:
       - ./data/zeroclaw/.zeroclaw:/zeroclaw-data/.zeroclaw
       - ${SHARED_WORKSPACE_HOST}:/zeroclaw-data/.zeroclaw/agents/${AGENT_NAME}/workspace/${SHARED_WORKSPACE_CONTAINER}
@@ -30,47 +28,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-  searxng:
-    image: searxng/searxng:latest
-    container_name: searxng
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./data/searxng:/etc/searxng:rw
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT}/
-      - GRANIAN_PORT=${SEARXNG_PORT}
-      - TZ=${TZ}
-
-  whisper:
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
-    container_name: whisper
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./whisper/model_aliases.json:/home/ubuntu/speaches/model_aliases.json
-      - hf-hub-cache:/home/ubuntu/.cache/huggingface/hub
-    environment:
-      - UVICORN_HOST=0.0.0.0
-      - UVICORN_PORT=${WHISPER_PORT}
-      - WHISPER__INFERENCE_DEVICE=cpu
-      - WHISPER__CPU_THREADS=${WHISPER_CPU_THREADS}
-      - STT_MODEL_TTL=-1
-      - ENABLE_UI=true
-      - TZ=${TZ}
-
-  piper:
-    image: kamilkrawiec/piper-openai-tts
-    container_name: piper
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./data/piper:/data
-    environment:
-      - PORT=${TTS_PORT}
-      - TZ=${TZ}
-
-volumes:
-  hf-hub-cache:
-
