@@ -34,7 +34,7 @@ The installer checks dependencies, writes `.env`, builds containers, and runs he
 
 | File | Purpose | Services |
 |------|---------|----------|
-| `docker-compose.yml` | Dev/experimentation | ZeroClaw only (`zeroclaw-dev`) |
+| `docker-compose.yml` | Dev/experimentation | ZeroClaw only (`zeroclaw-test`) |
 | `docker-compose.prod.yml` | Full stack | ZeroClaw + SearXNG + Whisper + Piper |
 
 ```bash

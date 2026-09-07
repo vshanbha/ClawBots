@@ -6,7 +6,7 @@ services:
       args:
         - UID=${UID}
         - GID=${GID}
-    container_name: zeroclaw-dev
+    container_name: zeroclaw-test
     restart: unless-stopped
     network_mode: host
     environment:
