@@ -28,13 +28,23 @@ result() {
 
 log "ClawBots (agent runtime)"
 
-if docker ps --format '{{.Names}}' | grep -q '^zeroclaw$'; then
-  result "$PASS" "Container" "running"
+# Allow overriding container name via env (default to zeroclaw, fallback to zeroclaw-test)
+ZEROCLAW_CONTAINER="${ZEROCLAW_CONTAINER:-}"
+if [ -z "$ZEROCLAW_CONTAINER" ]; then
+  if docker ps --format '{{.Names}}' | grep -q '^zeroclaw$'; then
+    ZEROCLAW_CONTAINER="zeroclaw"
+  elif docker ps --format '{{.Names}}' | grep -q '^zeroclaw-test$'; then
+    ZEROCLAW_CONTAINER="zeroclaw-test"
+  fi
+fi
 
-  if docker exec zeroclaw zeroclaw status >/dev/null 2>&1; then
+if [ -n "$ZEROCLAW_CONTAINER" ] && docker ps --format '{{.Names}}' | grep -q "^${ZEROCLAW_CONTAINER}$"; then
+  result "$PASS" "Container" "running ($ZEROCLAW_CONTAINER)"
+
+  if docker exec "$ZEROCLAW_CONTAINER" zeroclaw status >/dev/null 2>&1; then
     result "$PASS" "zeroclaw status" "exit code 0"
-    VERSION=$(docker exec zeroclaw zeroclaw status 2>&1 | grep -oP 'Version:\s+\K.*' || echo "unknown")
-    SERVICE=$(docker exec zeroclaw zeroclaw status 2>&1 | grep -oP 'Service:\s+\K.*' || echo "unknown")
+    VERSION=$(docker exec "$ZEROCLAW_CONTAINER" zeroclaw status 2>&1 | grep -oP 'Version:\s+\K.*' || echo "unknown")
+    SERVICE=$(docker exec "$ZEROCLAW_CONTAINER" zeroclaw status 2>&1 | grep -oP 'Service:\s+\K.*' || echo "unknown")
     result "$PASS" "Version" "$VERSION"
     if [ "$SERVICE" = "stopped" ]; then
       result "$WARN" "Service mode" "containerized (daemon runs as PID 1, not systemd)"
@@ -47,13 +57,13 @@ if docker ps --format '{{.Names}}' | grep -q '^zeroclaw$'; then
     result "$FAIL" "zeroclaw status" "non-zero exit"
   fi
 
-  if docker exec zeroclaw test -f /zeroclaw-data/.zeroclaw/config.toml 2>/dev/null; then
+  if docker exec "$ZEROCLAW_CONTAINER" test -f /zeroclaw-data/.zeroclaw/config.toml 2>/dev/null; then
     result "$PASS" "Config mount" "/zeroclaw-data/.zeroclaw/config.toml exists"
   else
     result "$WARN" "Config mount" "config.toml not found"
   fi
 
-  DAEMON_STATE=$(docker exec zeroclaw cat /zeroclaw-data/.zeroclaw/state/daemon_state.json 2>/dev/null || echo "")
+  DAEMON_STATE=$(docker exec "$ZEROCLAW_CONTAINER" cat /zeroclaw-data/.zeroclaw/state/daemon_state.json 2>/dev/null || echo "")
   if [ -n "$DAEMON_STATE" ]; then
     DAEMON_STATUS=$(echo "$DAEMON_STATE" | grep -A5 '"daemon"' | grep -oP '"status":\s*"\K[^"]+' || echo "unknown")
     GATEWAY_STATUS=$(echo "$DAEMON_STATE" | grep -A5 '"gateway"' | grep -oP '"status":\s*"\K[^"]+' || echo "unknown")

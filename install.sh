@@ -112,7 +112,7 @@ echo ""
 
 echo "--- Port availability ---"
 
-PORTS=(42617:zeroclaw 5000:piper 5321:searxng 9001:whisper)
+PORTS=(42618:zeroclaw 5000:piper 5321:searxng 9001:whisper)
 for entry in "${PORTS[@]}"; do
   PORT="${entry%%:*}"
   SVC="${entry##*:}"
@@ -140,9 +140,12 @@ fi
 if [ -f "$ENV_FILE" ]; then
   pass ".env exists"
 else
-  cp "$ENV_EXAMPLE" "$ENV_FILE"
-  pass "created .env from .env.example"
-  echo "  Edit .env to set UID, GID, and other values for your system"
+  fail ".env not found. Copy .env.example to .env and edit it for your system:"
+  echo "    cp .env.example .env"
+  echo "    # Set UID, GID, ports, paths, etc."
+  echo ""
+  echo "Errors found: $((ERRORS + 1))"
+  exit 1
 fi
 
 echo ""
@@ -188,7 +191,8 @@ echo ""
 echo "--- Building and starting containers ---"
 
 cd "$SCRIPT_DIR"
-docker compose up -d --build
+# Use --compatibility for deploy.resources to work with docker compose v2
+docker compose --compatibility up -d --build
 echo ""
 
 # ─── Run tests ────────────────────────────────────────────────

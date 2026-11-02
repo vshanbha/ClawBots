@@ -12,7 +12,7 @@ We use Docker Compose to create a **repeatable, batteries-included** environment
 
 1. **Test *Claw tools quickly** — spin up ZeroClaw (and soon OpenClaw) with search, STT, and TTS ready to go
 2. **Productionize what works** — identify winning configurations and deploy them properly
-3. **Iterate fast** — dev compose for experimentation, prod compose for stable deployments
+3. **Iterate fast** — quick experimentation and deployment with a single compose file
 
 ---
 
@@ -24,25 +24,24 @@ We use Docker Compose to create a **repeatable, batteries-included** environment
 
 ## Quick Start
 
+1. Copy the example env and configure it:
+```bash
+cp .env.example .env
+# Edit .env to match your system (UID/GID, ports, shared workspace paths, etc.)
+```
+
+2. Run the installer:
 ```bash
 bash install.sh
 ```
 
-The installer checks dependencies, writes `.env`, builds containers, and runs health checks.
+The installer checks dependencies, validates `.env`, builds containers, and runs health checks. All configuration is driven from `.env` only.
 
-## Development vs Production
-
-| File | Purpose | Services |
-|------|---------|----------|
-| `docker-compose.yml` | Dev/experimentation | ZeroClaw only (`zeroclaw-test`) |
-| `docker-compose.prod.yml` | Full stack | ZeroClaw + SearXNG + Whisper + Piper |
+## Usage
 
 ```bash
-# Dev mode — just ZeroClaw, connects to existing prod services
+# Start all services
 docker compose up -d
-
-# Prod mode — full stack
-docker compose -f docker-compose.prod.yml up -d
 ```
 
 Both can run simultaneously (different container names, same host network).
@@ -72,7 +71,7 @@ Both can run simultaneously (different container names, same host network).
 The main container. Runs the ClawBots daemon and agent-browser (headless Chrome).
 
 - **Port 42618** — gateway for Discord, Telegram, and other channels
-- **CPU/memory capped** — 2 cores, 512MB limit
+- **CPU/memory capped** — 2 cores, 512MB limit (applied via `deploy.resources` with `docker compose --compatibility`)
 - **Health check** — `zeroclaw status` every 60s
 
 ### searxng — web search
@@ -97,7 +96,7 @@ Local TTS with OpenAI-compatible API.
 
 ## Configuration
 
-All settings live in `.env` (copy from `.env.example`):
+All settings live in `.env` only (copy from `.env.example` and edit it):
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
