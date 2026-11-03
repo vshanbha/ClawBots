@@ -8,9 +8,13 @@ services:
         - GID=${GID}
     container_name: zeroclaw-test
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "42617:42617"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - ZEROCLAW_gateway__allow_public_bind=true
+    command: ["gateway", "start", "--host", "0.0.0.0", "--port", "42617"]
     volumes:
       - ./data/zeroclaw/.zeroclaw:/zeroclaw-data/.zeroclaw
       - ${SHARED_WORKSPACE_HOST}:/zeroclaw-data/.zeroclaw/agents/${AGENT_NAME}/workspace/${SHARED_WORKSPACE_CONTAINER}
@@ -58,16 +62,17 @@ services:
       - ENABLE_UI=true
       - TZ=${TZ}
 
-  piper:
-    image: kamilkrawiec/piper-openai-tts
-    container_name: piper
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./data/piper:/data
-    environment:
-      - PORT=${TTS_PORT}
-      - TZ=${TZ}
+  # TODO: Add piper TTS service back when we have an ARM64-compatible OpenAI-compatible image
+  # piper:
+  #   image: kamilkrawiec/piper-openai-tts
+  #   container_name: piper
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   volumes:
+  #     - ./data/piper:/data
+  #   environment:
+  #     - PORT=${TTS_PORT}
+  #     - TZ=${TZ}
 
 volumes:
   hf-hub-cache:
