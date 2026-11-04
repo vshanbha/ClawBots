@@ -1,184 +1,101 @@
-# Your First Agent Setup — ZeroClaw on Docker (macOS)
+# Your First Agent Setup
 
-This document captures the complete setup process for running a ZeroClaw agent ("Gibbs") inside Docker on macOS, including all the deviations from the original `weshall.build` blog post approach.
+This guide covers everything after infrastructure is running - models, providers, agents, peer groups, channels, external services, skills, and troubleshooting. Based on a working configuration.
 
 ## Prerequisites
+Infrastructure from README.md must be up and running. Ollama must be running with models pulled.
 
-- macOS with Docker Desktop
-- `.env` file copied from `.env.example` with `AGENT_NAME=gibbs` (or your agent name)
-- All images pre-pulled (never pull on stage)
-
-## 1. Docker Compose Configuration
-
-### Key difference from original blog post
-The original blog post assumes Linux with `network_mode: host`. On macOS Docker Desktop, host networking shares the VM's network namespace, not your Mac's. This means:
-- `localhost:<port>` on your Mac does NOT reach containers
-- Containers can't reach your Mac's `localhost:<port>` services
-
-### Solution: Bridge networking for zeroclaw only
-
-Only `zeroclaw` uses bridge networking with port publishing. `searxng` and `whisper` stay on `network_mode: host`.
-
-```yaml
-services:
-  zeroclaw:
-    build:
-      context: ./zeroclaw
-      dockerfile: Dockerfile
-      args:
-        - UID=${UID}
-        - GID=${GID}
-    container_name: zeroclaw-test
-    restart: unless-stopped
-    ports:
-      - "42617:42617"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    environment:
-      - ZEROCLAW_gateway__allow_public_bind=true
-    volumes:
-      - ./data/zeroclaw/.zeroclaw:/zeroclaw-data/.zeroclaw
-      - ${SHARED_WORKSPACE_HOST}:/zeroclaw-data/.zeroclaw/agents/${AGENT_NAME}/workspace/${SHARED_WORKSPACE_CONTAINER}
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 32M
-    healthcheck:
-      test: ["CMD", "zeroclaw", "status", "--format=exit-code"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-  searxng:
-    image: searxng/searxng:latest
-    container_name: searxng
-    restart: unless-stopped
-    ports:
-      - "${SEARXNG_PORT}:${SEARXNG_PORT}"
-    volumes:
-      - ./data/searxng:/etc/searxng:rw
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT}/
-      - GRANIAN_PORT=${SEARXNG_PORT}
-      - TZ=${TZ}
-
-  whisper:
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
-    container_name: whisper
-    restart: unless-stopped
-    ports:
-      - "${WHISPER_PORT}:${WHISPER_PORT}"
-    volumes:
-      - ./whisper/model_aliases.json:/home/ubuntu/speaches/model_aliases.json
-      - hf-hub-cache:/home/ubuntu/.cache/huggingface/hub
-    environment:
-      - UVICORN_HOST=0.0.0.0
-      - UVICORN_PORT=${WHISPER_PORT}
-      - WHISPER__INFERENCE_DEVICE=cpu
-      - WHISPER__CPU_THREADS=${WHISPER_CPU_THREADS}
-      - STT_MODEL_TTL=-1
-      - ENABLE_UI=true
-      - TZ=${TZ}
-
-volumes:
-  hf-hub-cache:
-```
-
-**Key changes from original:**
-- `zeroclaw`: removed `network_mode: host`, added `ports: ["42617:42617"]` and `extra_hosts: host.docker.internal:host-gateway`
-- `searxng`: removed `network_mode: host`, added `ports: ["${SEARXNG_PORT}:${SEARXNG_PORT}"]`
-- `whisper`: removed `network_mode: host`, added `ports: ["${WHISPER_PORT}:${WHISPER_PORT}"]`
-- **No `command` override** — let the container use its default entrypoint. The gateway bind address is set via config instead.
-
-## 2. Dockerfile Changes
-
-The original Dockerfile used `agent-browser install --with-deps` which fails on ARM64 because Chrome for Testing doesn't provide Linux ARM64 builds. We added a fallback to install Chromium from the system package manager:
-
-```dockerfile
-# Install Chromium for fallback (ARM64)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV CHROME_BIN=/usr/bin/chromium
-
-RUN . "${NVM_DIR}/nvm.sh" \
-    && agent-browser install --with-deps || true
-```
-
-## 3. ZeroClaw Configuration
-
-### Gateway binding (required for Mac access)
-```bash
-docker exec zeroclaw-test zeroclaw config set gateway.host 0.0.0.0
-docker exec zeroclaw-test zeroclaw config set gateway.allow_remote_admin true
-```
-
-### Remote admin (required for dashboard reloads on Mac)
-```bash
-docker exec zeroclaw-test zeroclaw config set gateway.allow_remote_admin true
-```
-
-### Context window (required for MCP tools + skills)
-```bash
-docker exec zeroclaw-test zeroclaw config set providers.models.opencode.default.context_window 128000
-```
-
-### Compact skill injection (reduces prompt size)
-```bash
-docker exec zeroclaw-test zeroclaw config set skills.prompt_injection_mode compact
-```
-
-### Max tool iterations (for browser tasks)
-```bash
-docker exec zeroclaw-test zeroclaw config set runtime_profiles.balanced.max_tool_iterations 50
-```
-
-### Risk profile (locked_down requires approval for browser actions)
-Set to `locked_down` (default) — browser actions require approval. For demo, this is fine since Gibbs will ask for approval.
-
-## 4. Discord Setup
-
-Follow the blog post's Discord setup, but note:
-- The bot token is stored encrypted in `config.toml`
-- Peer groups gate by **sender (user ID)**, not channel ID
-- To allow everyone in a channel: set `external_peers = ["*"]` in the peer group
-- Channel filtering is done via `channel_ids` in the Discord channel config
-- After config changes, `docker compose restart zeroclaw` is required (no daemon supervisor with standalone gateway)
-
-### Config applied:
+## 0. Core Settings
 ```toml
-[channels.discord.default]
+schema_version = 3
+
+[tools]
+optional = ["*"]
+
+[onboard_state]
+quickstart_completed = true
+completed_sections = ["memory"]
+
+[media_pipeline]
 enabled = true
-bot_token = "enc2:..."
-slash_commands = true
-stream_mode = "multi_message"
-mention_only = false
 
-[peer_groups.gibbs_allow_discord]
-channel = "discord.default"
-agents = ["gibbs"]
-external_peers = ["*"]
+[skills]
+prompt_injection_mode = "compact"
 ```
 
-## 5. BrowserOS Neo MCP Integration
+## 1. Configure Models & Providers
 
-BrowserOS Neo MCP only binds to `127.0.0.1:9010`. Since `zeroclaw` is on bridge networking, it can't reach `127.0.0.1` on the Mac directly.
+Edit `data/zeroclaw/.zeroclaw/config.toml`.
 
-### Solution: Use `host.docker.internal`
+### Ollama (Local - Optional if using OpenCode)
+```toml
+[providers.models.ollama.default]
+uri = "http://host.docker.internal:11434"
+model = "lfm3:latest"
+context_window = 262144
+fallback_models = ["gemma4:e4b"]
+```
 
-1. BrowserOS MCP endpoint: `http://127.0.0.1:9010/mcp` (on Mac)
-2. From inside the container, use: `http://host.docker.internal:9010/mcp`
-3. **Critical**: BrowserOS neo only accepts `Host: localhost:9010` header. Add to config:
+### OpenCode Inference (Cloud)
+```toml
+[providers.models.opencode.default]
+api_key = "<your_openai_compatible_key>"
+uri = "https://opencode.ai/inference/go/openai/v1/chat/completions"
+model = "beam-free"
+context_window = 1048576
+live_pricing = true
+vision = true
+think = true
+fallback = ["mimo-v2.6-flash"]
+```
+
+## 2. Configure Memory
+```toml
+[memory]
+backend = "markdown"
+auto_save = true
+hygiene_enabled = true
+search_mode = "hybrid"
+retrieval_stages = ["fts", "vector"]
+archive_after_days = 7
+conversation_retention_days = 30
+```
 
 ```toml
+[memory.policy]
+redact_categories = ["secret", "api_key", "private_key", "email", "phone"]
+redact_on_write = false
+threat_scan = "on"
+```
+
+## 3. Configure Skills & MCP
+
+### Global Skills Bundle
+```toml
+[skill_bundles.global_tools]
+```
+This bundle references skills in `shared/skills/global_tools/`. Skills are installed via `npx skills add` (not manually placing files):
+```bash
+# Install agent-browser skill
+npx skills add vercel-labs/agent-browser -g --bundle global_tools
+
+# Install browseros-neo skill (from BrowserOS Neo MCP connection)
+# BrowserOS Neo installs this skill automatically when connected
+```
+
+These are shared skills loaded for any agent listing this bundle in `skill_bundles`. To add custom skills, use `zeroclaw skills install <source> --bundle global_tools`.
+
+### MCP Bundles
+```toml
+[mcp_bundles.host_tools]
+servers = ["browseros_neo"]
+```
+
+### BrowserOS Neo MCP (Browser Automation)
+Start [BrowserOS Neo](https://browseros.com/) separately on host, listening on port 9010.
+```toml
+[mcp]
+
 [[mcp.servers]]
 name = "browseros_neo"
 transport = "http"
@@ -186,151 +103,168 @@ url = "http://host.docker.internal:9010/mcp"
 headers = { Host = "localhost:9010" }
 ```
 
-4. Add MCP bundle to agent:
+## 4. Configure External Services
+
+### Web Search (SearXNG)
 ```toml
-[mcp_bundles.host_tools]
-servers = ["browseros_neo"]
+[web_search]
+searxng_instance_url = "http://host.docker.internal:5321"
+search_provider = "searxng"
+```
+SearXNG is already running from docker-compose. Config at `data/searxng/settings.yml`.
 
-[agents.gibbs]
+### Speech-to-Text (Whisper)
+```toml
+[transcription]
+api_url = "http://host.docker.internal:9001/v1/audio/transcriptions"
+transcribe_non_ptt_audio = true
+model = "ggml-small"
+enabled = true
+```
+
+### Media Pipeline (see Core Settings above)
+
+## 5. Configure Agents
+
+### Agent Definitions
+```toml
+[agents.<agent_name>]
+model_provider = "opencode.default"
+runtime_profile = "<agent_name>"
+risk_profile = "<agent_name>"
+channels = ["discord.default"]
 mcp_bundles = ["host_tools"]
+skill_bundles = ["global_tools"]
+transcription_provider = "default"
+delegate_same_risk_profile = true
+
+[[agents.<agent_name>.delegates]]
+agent = "<subagent_name>"
+mode = "bounded"
 ```
 
-5. Restart container to pick up changes.
+### Runtime Profile
+```toml
+[runtime_profiles.<agent_name>]
+agentic = true
+max_tool_iterations = 50
+max_actions_per_hour = 20
+max_cost_per_day_cents = 500
+max_delegation_depth = 3
+shell_timeout_secs = 60
+strict_tool_parsing = false
+max_context_tokens = 262144
+token_budget = 262144
+# Adjust max_context_tokens/token_budget to match your model's context window
+deferred_builtin_tools = false
 
-### Verification:
-```bash
-docker exec zeroclaw-test curl -s http://host.docker.internal:9010/mcp
-# Should return MCP server info, not 403
+[runtime_profiles.<agent_name>.context_compression]
+enabled = true
+threshold_ratio = 0.9
+max_passes = 1
+protect_first_n = 5
+protect_last_n = 6
+source_max_chars = 30000
+summary_max_chars = 2000
+tool_result_retrim_chars = 1000
+identifier_policy = "strict"
+timeout_secs = 60
+
+[runtime_profiles.<agent_name>.thinking]
+default_level = "medium"
+display = "off"
+native_thinking = false
+
+[runtime_profiles.<agent_name>.history_pruning]
+enabled = false
+collapse_tool_results = true
+keep_recent = 4
+max_tokens = 262144
 ```
 
-## 6. Skills Installation
+### Risk Profile
+```toml
+[risk_profiles.<agent_name>]
+level = "supervised"
+sandbox_enabled = true
+workspace_only = true
+block_high_risk_commands = true
+require_approval_for_medium_risk = true
+allowed_tools = ["*"]
+allowed_commands = ["git", "npm", "cargo", "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date", "df", "du", "uname", "uptime", "hostname", "python", "python3", "pip", "node", "free"]
+forbidden_paths = ["/etc", "/root", "/home", "/usr", "/bin", "/sbin", "/lib", "/opt", "/boot", "/dev", "/proc", "/sys", "/var", "/tmp", "~/.ssh", "~/.gnupg", "~/.aws", "~/.config"]
+auto_approve = ["file_read", "memory_recall", "web_search_tool", "web_fetch", "calculator", "glob_search", "content_search", "image_info", "weather", "tool_search", "browser_open", "memory_store", "git_operations", "canvas", "TodoWrite", "sessions_list", "sessions_current", "sessions_history", "ask_user", "escalate_to_human", "mcp_resources", "mcp_prompts", "browseros_neo__navigate", "browseros_neo__run_skill", "browseros_neo__windows", "browseros_neo__mark_skill_run", "browseros_neo__tabs", "browseros_neo__read", "browseros_neo__name_session", "browseros_neo__request_human_help", "browseros_neo__save_skill", "browseros_neo__pdf", "browseros_neo__screenshot", "browseros_neo__snapshot", "browseros_neo__run", "browseros_neo__tab_groups", "browseros_neo__await_human_help"]
 
-### BrowserOS Neo skill
-```bash
-docker exec zeroclaw-test zeroclaw skills bundle add global_tools
-docker exec zeroclaw-test zeroclaw skills install https://github.com/browseros-ai/BrowserOS --skill browseros-neo --bundle global_tools
-docker exec zeroclaw-test zeroclaw config set agents.gibbs.skill_bundles '["global_tools"]'
+[risk_profiles.<agent_name>.delegation_policy]
+mode = "allow"
 ```
 
-### agent-browser skill
-```bash
-docker exec zeroclaw-test zeroclaw skills install https://github.com/vercel-labs/agent-browser --skill agent-browser --bundle global_tools
+## 6. Configure Channels
+
+### Discord
+```toml
+[channels.discord.default]
+enabled = true
+bot_token = "<your_discord_bot_token>"
+slash_commands = true
+mention_only = false
+listen_to_bots = false
+approval_timeout_secs = 3600
+stream_mode = "multi_message"
 ```
 
-### Trip Planner skill (agent-specific)
-Created manually at:
-```
-data/zeroclaw/.zeroclaw/agents/gibbs/workspace/skills/trip-planner/SKILL.md
-```
+Get bot token from Discord Developer Portal. Enable Message Content Intent and Server Members Intent.
 
-### Skills are loaded at session construction time — restart required after any skill change.
-
-## 7. Transcription (Voice Input)
-
-### Enable transcription
-```bash
-docker exec zeroclaw-test zeroclaw config set transcription.enabled true
-docker exec zeroclaw-test zeroclaw config set transcription.transcribe_non_ptt_audio true
-docker exec zeroclaw-test zeroclaw config set media_pipeline.enabled true
+### Peer Groups
+```toml
+[peer_groups.<group_name>]
+agents = ["<agent_name>", "<subagent_name>"]
+channel = "discord.default"
+external_peers = ["*"]
+output_modality = "mirror"
+admin_for_agent_scope = false
 ```
 
-### Create transcription provider
-```bash
-docker exec zeroclaw-test zeroclaw providers create transcription openai default
-docker exec zeroclaw-test zeroclaw config set --no-interactive providers.transcription.openai.default.api_key "dummy"
-docker exec zeroclaw-test zeroclaw config set providers.transcription.openai.default.model "ggml-small"
+## 7. Gateway Configuration
+```toml
+[gateway]
+host = "0.0.0.0"
+allow_remote_admin = true
+paired_tokens = ["<paired_tokens>"]
 ```
 
-### Set transcription provider for agent
-```bash
-docker exec zeroclaw-test zeroclaw config set agents.gibbs.transcription_provider default
-```
-
-### Whisper model download
-The model is auto-downloaded on first use, but can be pre-downloaded:
-```bash
-docker exec zeroclaw-test curl -s -X POST http://host.docker.internal:9001/v1/models/Systran/faster-whisper-small
-```
-
-### Known issue: Voice transcription may fail with "no speech-to-text tools available"
-This happens when the transcription provider isn't properly registered. Check logs for:
-```
-typed transcription provider skipped (config error): Missing API key
-```
-
-## 8. Ollama Integration (Local Model)
-
-```bash
-docker exec zeroclaw-test zeroclaw config set providers.models.ollama.default.uri "http://host.docker.internal:11434"
-docker exec zeroclaw-test zeroclaw config set providers.models.ollama.default.model "gemma4:e4b"
-docker exec zeroclaw-test zeroclaw config set providers.models.ollama.default.context_window 200000
-```
-
-## 9. Key Differences from Blog Post
-
-| Aspect | Blog Post (Linux) | This Setup (macOS Docker Desktop) |
-|--------|-------------------|-----------------------------------|
-| Networking | `network_mode: host` | Bridge + port publishing for zeroclaw, host for searxng/whisper |
-| Web UI access | `localhost:42617` | `localhost:42617` (via port publishing) |
-| Host service access | `localhost:<port>` | `host.docker.internal:<port>` |
-| Discord connectivity | Works with host networking | Works with bridge networking (bot connects outbound) |
-| Daemon reload | `zeroclaw service restart` | `docker compose restart zeroclaw` (no daemon supervisor) |
-| Config changes | Via UI or CLI | Via CLI only (`docker exec`) — UI reload returns 503 |
-| Agent risk profile | balanced | locked_down (requires approval for browser actions) |
-| TTS (Piper) | OpenAI-compatible image | Removed (ARM64 incompatible) |
-
-## 10. Common Issues and Fixes
-
-### "This request exceeds the selected model's context window"
-- Set `context_window` on the provider: `zeroclaw config set providers.models.opencode.default.context_window 128000`
-- Set `skills.prompt_injection_mode` to `compact`
-
-### "Turn stopped: reached maximum tool iterations (10)"
-- Set `max_tool_iterations` higher: `zeroclaw config set runtime_profiles.balanced.max_tool_iterations 50`
-
-### "MCP server returned HTTP 403 Forbidden" (BrowserOS)
-- Add `headers = { Host = "localhost:9010" }` to the MCP server config
-
-### "no daemon supervisor — running as standalone gateway"
-- This is expected with `gateway start` command. Use `docker compose restart zeroclaw` instead of UI reload.
-
-### "config lifecycle is already owned"
-- Remove the lock file: `docker exec zeroclaw-test rm -f /zeroclaw-data/.zeroclaw/data/.lifecycle/config-lifecycle.lock`
-
-### Discord bot offline
-- Check Message Content Intent and Server Members Intent are enabled
-- Re-invite the bot with proper permissions
-- Check the bot token is correct
-- Restart container after config changes
-
-### Voice transcription empty
-- Ensure whisper model is downloaded: `POST /v1/models/Systran/faster-whisper-small`
-- Ensure transcription provider has API key set
-- Check media_pipeline.enabled = true
-
-## 11. Quick Reference Commands
+## 8. Apply Configuration
 
 ```bash
-# Start everything
-docker compose up -d
-
-# Restart zeroclaw (after config changes)
+# Remove config lock if present
 docker exec zeroclaw-test rm -f /zeroclaw-data/.zeroclaw/data/.lifecycle/config-lifecycle.lock
+
+# Restart ZeroClaw
 docker compose restart zeroclaw
 
-# Check health
-docker exec zeroclaw-test zeroclaw channel doctor
+# Verify
+docker compose logs zeroclaw --tail 40
 docker exec zeroclaw-test zeroclaw status
-
-# Get pairing code
-docker exec zeroclaw-test zeroclaw gateway get-paircode --new --port 42617
-
-# List skills
-docker exec zeroclaw-test zeroclaw skills list --agent gibbs
-
-# List agents
 docker exec zeroclaw-test zeroclaw agents list
-
-# Check logs
-docker compose logs zeroclaw --tail 50
 ```
+
+## 9. Troubleshooting & Tweaks
+
+| Issue | Fix |
+|-------|-----|
+| Context window exceeded | Verify `context_window` matches model (lfm3: 262144, beam-free: 1048576). Enable/tune context compression. |
+| Provider rejects compressed request | Use conservative compression (threshold 0.9, max_passes 1). |
+| Tools not available | Check risk profile `allowed_tools` and permissions. |
+| Delegation failing | Set `delegation_policy.mode = "allow"` and increase `max_delegation_depth`. |
+| MCP browser tools failing | Ensure BrowserOS Neo running at `:9010`, check MCP config headers. |
+| SearXNG 403 | Check `data/searxng/settings.yml` - disable bot detection/limiter for local use. |
+| Whisper issues | Verify `http://localhost:9001/health`, check model download. |
+| Config lock stuck | Remove lifecycle lock file and restart. |
+| Ollama unreachable from container | Use `host.docker.internal:11434` on macOS/Docker Desktop. |
+
+## Tips
+- Match context windows exactly to model capabilities
+- Use conservative compression settings with free/strict models
+- Keep skills in global bundle for reuse across agents
+- Browser automation requires separate BrowserOS Neo instance
+- Test after each major config change with a restart

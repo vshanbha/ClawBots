@@ -1,154 +1,60 @@
-# ClawBots Docker Infrastructure
+# ClawBots
 
-## Why This Project
+## Quick Start: Get Infrastructure Up and Running
 
-We use Docker Compose to create a **repeatable, batteries-included** environment for testing *Claw tools. The goals:
+### Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS) or [Docker Engine](https://docs.docker.com/engine/install/) (Linux)
+- Ollama (optional if using OpenCode) installed on host
+- At least 8GB RAM recommended
 
-- **Ready out of the box** — SearXNG, Whisper, and Piper are pre-configured and start with a single command. No manual setup required.
-- **Minimal attack surface** — containerized services don't pollute the host system. Dependencies stay isolated.
-- **Consistent across machines** — same setup on any machine with Docker installed.
+### 1. Clone
+```bash
+git clone <repo-url>
+cd ClawBots
+```
 
-## What We're Doing
-
-1. **Test *Claw tools quickly** — spin up ZeroClaw (and soon OpenClaw) with search, STT, and TTS ready to go
-2. **Productionize what works** — identify winning configurations and deploy them properly
-3. **Iterate fast** — quick experimentation and deployment with a single compose file
-
----
-
-## Documentation
-
-- [Decision Log](docs/DECISIONS.md) — architectural and tooling decisions with rationale
-
----
-
-## Quick Start
-
-1. Copy the example env and configure it:
+### 2. Configure Environment
 ```bash
 cp .env.example .env
-# Edit .env to match your system (UID/GID, ports, shared workspace paths, etc.)
 ```
 
-2. Run the installer:
+Edit `.env` with your values:
+```env
+UID=$(id -u)
+GID=$(id -g)
+SEARXNG_PORT=5321
+WHISPER_PORT=9001
+AGENT_NAME=<your_agent_name>
+SHARED_WORKSPACE_HOST=<absolute_path_to_workspace>
+SHARED_WORKSPACE_CONTAINER=/workspace
+TZ=UTC
+```
+
+### 3. Pull Local Model (Optional - only if using local models)
 ```bash
-bash install.sh
+ollama serve &
+ollama pull lfm3:latest
 ```
 
-The installer checks dependencies, validates `.env`, builds containers, and runs health checks. All configuration is driven from `.env` only.
-
-## Usage
-
+### 4. Start All Services
 ```bash
-# Start all services
-docker compose up -d
+docker compose up -d --build
 ```
 
-Both can run simultaneously (different container names, same host network).
+This will start:
+- **zeroclaw** (port 42617) - Agent orchestrator
+- **searxng** (port 5321) - Web search
+- **whisper** (port 9001) - Speech-to-text
 
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│                  ZeroClaw                        │
-│              (Orchestration Core)                │
-└─────────────────┬───────────────────────────────┘
-                  │
-    ┌─────────────┼─────────────┬─────────────────┐
-    │             │             │                 │
-    ▼             ▼             ▼                 ▼
-┌────────┐  ┌──────────┐  ┌─────────┐  ┌──────────────┐
-│Whisper │  │  Piper   │  │SearXNG  │  │Agent Browser │
-│  STT   │  │   TTS    │  │ Search  │  │    Web       │
-└────────┘  └──────────┘  └─────────┘  └──────────────┘
-```
-
-## Services
-
-### zeroclaw — the AI agent
-The main container. Runs the ClawBots daemon and agent-browser (headless Chrome).
-
-- **Port 42618** — gateway for Discord, Telegram, and other channels
-- **CPU/memory capped** — 2 cores, 512MB limit (applied via `deploy.resources` with `docker compose --compatibility`)
-- **Health check** — `zeroclaw status` every 60s
-
-### searxng — web search
-Self-hosted metasearch engine (Google, DuckDuckGo, Wikipedia, etc.).
-
-- **Port 5321** — host network
-- **Config** — `./data/searxng/`
-
-### whisper — speech-to-text
-Speaches (faster-whisper) for voice message transcription.
-
-- **Port 9001** — host network
-- **Models** — auto-download from HuggingFace, cached in `hf-hub-cache`
-
-### piper — text-to-speech
-Local TTS with OpenAI-compatible API.
-
-- **Port 5000** — host network
-- **Voices** — `en_GB-alan-medium` (English), `hi_IN-priyamvada-medium` (Hindi)
-
----
-
-## Configuration
-
-All settings live in `.env` only (copy from `.env.example` and edit it):
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `UID`/`GID` | Match host user | `1000` |
-| `SEARXNG_PORT` | Search engine port | `5321` |
-| `WHISPER_PORT` | STT port | `9001` |
-| `TTS_PORT` | TTS port | `5000` |
-| `WHISPER_MODEL` | STT model size | `ggml-small` |
-
-## Changing the Whisper Model
-
-Edit `whisper/model_aliases.json` and restart:
-
+### 5. Verify Infrastructure
 ```bash
-docker compose restart whisper
+# Check all containers
+docker compose ps
+
+# Test services
+curl http://localhost:9001/health
+curl "http://localhost:5321/search?q=test&format=json"
+curl http://localhost:42617/health
 ```
 
-Available: `tiny` (~75MB), `base` (~150MB), `small` (~500MB), `medium` (~1.5GB), `large-v3` (~3GB).
-
-## Updating
-
-```bash
-docker compose pull                    # Update images
-docker compose build zeroclaw          # Rebuild custom image
-docker compose up -d                   # Restart
-```
-
-## Testing
-
-```bash
-bash tests/test-services.sh
-```
-
-Verifies: containers running, health endpoints, TTS audio generation, STT transcription (WAV + OGG).
-
-## Troubleshooting
-
-```bash
-docker compose logs zeroclaw           # Check logs
-curl http://localhost:9001/health      # Whisper health
-curl http://localhost:5000/v1/models   # Piper health
-curl http://localhost:5321/search?q=test  # SearXNG health
-docker exec -it zeroclaw bash          # Shell into container
-```
-
----
-
-## Projects & Documentation
-
-| Project | Description | Links |
-|---------|-------------|-------|
-| **ZeroClaw** | AI agent orchestrator | [Website](https://zeroclaw.ai) • [Docs](https://docs.zeroclaw.ai) • [GitHub](https://github.com/zeroclaw-labs/zeroclaw) |
-| **Speaches** | OpenAI-compatible STT | [GitHub](https://github.com/speaches-ai/speaches) |
-| **Piper** | Local TTS synthesis | [GitHub](https://github.com/rhasspy/piper) • [Voices](https://huggingface.co/rhasspy/piper-voices) |
-| **SearXNG** | Metasearch engine | [Docs](https://docs.searxng.org) • [GitHub](https://github.com/searxng/searxng) |
+If all checks pass, your infrastructure is up and running. Continue to [YOUR_FIRST_AGENT_SETUP.md](docs/YOUR_FIRST_AGENT_SETUP.md) to configure agents, models, channels, and skills.
